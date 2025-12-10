@@ -33,7 +33,7 @@ class SymbolData:
         if 'tick_volume' not in df.columns or len(df) == 0:
             return None
             
-        # --- VWAP Calculation Logic starts here (CORRECTLY INDENTED) ---
+        # --- VWAP Calculation Logic starts here ---
         # Typical price (H + L + C) / 3
         df['TypicalPrice'] = (df['high'] + df['low'] + df['close']) / 3
         # TypicalPrice * Volume
@@ -59,14 +59,19 @@ class SymbolData:
 
     def calculate_support_resistance(self, df: pd.DataFrame) -> Dict[str, float]:
         """
-        Placeholder for complex S/R calculation logic.
+        Calculates simple Support and Resistance levels based on the min/max of the last 50 bars.
         """
-        if len(df) < 5: 
-             return {"support": 0.0, "resistance": 0.0}
+        LOOKBACK_PERIOD = 50
+        if len(df) < LOOKBACK_PERIOD: 
+             # Return a safe, less precise S/R if not enough data
+             return {"support": df['low'].min() if not df.empty else 0.0, 
+                     "resistance": df['high'].max() if not df.empty else 0.0}
 
+        recent_data = df.tail(LOOKBACK_PERIOD)
+        
         return {
-            "support": df['low'].tail(20).min(),
-            "resistance": df['high'].tail(20).max()
+            "support": recent_data['low'].min(),
+            "resistance": recent_data['high'].max()
         }
 
     def calculate_rsi(self, df: pd.DataFrame, period: int = 14) -> Optional[np.ndarray]:

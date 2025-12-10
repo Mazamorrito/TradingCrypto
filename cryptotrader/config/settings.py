@@ -15,7 +15,7 @@ MARKET_WATCH_BAR_COUNT = 300
 
 # --- PNL MANAGEMENT (USD/Account Currency) ---
 # Maximum positive profit before position is closed
-TAKE_PROFIT_USD = 1.0   
+TAKE_PROFIT_USD = 1.25   
 # Maximum loss before position is closed
 STOP_LOSS_USD = -10.0  
 # Profit level at which the trailing stop feature becomes active

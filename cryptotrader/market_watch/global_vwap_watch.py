@@ -34,9 +34,11 @@ class GlobalVwapWatch:
         
         # 1. Fetch Data
         df = self.symbol_data.get_ohlc_bars(symbol, self.timeframe, self.bar_count)
-        if df is None or df.empty:
-            return {"trend": "ERROR", "confirmation": "NEUTRAL", "vwap": None, "current_price": None}
         
+        if df is None or df.empty:
+            # If data fetch failed (e.g., symbol not found)
+            return self._default_market_state(symbol)
+
         # 2. Calculate VWAP
         vwap_array = self.symbol_data.calculate_vwap(df)
         if vwap_array is None or len(vwap_array) == 0:

@@ -2,9 +2,9 @@
 
 from core.trade_manager import TradeManager
 from core.symbol_data import SymbolData
-from config.settings import DEFAULT_VOLUME, MT5_MAGIC_NUMBER
-from typing import Dict, Any
-import MetaTrader5 as mt5
+# CRITICAL FIX: Import the shared timeframe setting
+from config.settings import DEFAULT_VOLUME, MT5_MAGIC_NUMBER, MARKET_WATCH_TIMEFRAME 
+from typing import Dict, Any, Optional
 
 # Unique Magic Number for this strategy
 STRATEGY_MAGIC = MT5_MAGIC_NUMBER + 1 
@@ -13,54 +13,79 @@ class VwapTrendContinuation:
     """
     VWAP Trend Continuation (The "Bounce" Strategy):
     Trades placed on a pullback to the VWAP line within a confirmed strong trend.
+    (Entry logic fixed to use a more robust "touch and close" condition)
     """
     def __init__(self, trade_manager: TradeManager, symbol_data: SymbolData):
         self.trade_manager = trade_manager
         self.symbol_data = symbol_data
         self.volume = DEFAULT_VOLUME
         
-    def check_for_entry(self,symbol:str, market_state: Dict[str, Any], open_positions: tuple):
+    def check_for_entry(self, symbol: str, market_state: Dict[str, Any], open_positions: tuple) -> Optional[str]:
         """
-        Analyzes the market state and local price action to place a trade.
+        FIXED LOGIC: Uses a "VWAP Touch and Close" condition for better signal generation 
+        in backtesting, combined with the GlobalVwapWatch trend.
         """
-        confirmation = market_state.get('confirmation')
+        # 0. Enforce single position constraint
+        if open_positions:
+            return None 
+
         trend = market_state.get('trend')
         vwap = market_state.get('vwap')
         current_price = market_state.get('current_price')
+        
+        # Check for invalid indicator data
+        if vwap is None or current_price is None:
+            return None
+        
+        # 1. Get the current bar's OHLC data to check the 'touch' (Count=2 ensures we get the current bar's full data)
+        df = self.symbol_data.get_ohlc_bars(symbol, timeframe=MARKET_WATCH_TIMEFRAME, count=2) 
+        
+        if df.empty or len(df) < 2:
+            return None
 
-        # Check for existing open trade for this strategy
-        if any(p.magic == STRATEGY_MAGIC and p.symbol == symbol for p in open_positions):
-            return
+        current_bar = df.iloc[-1]
+        current_high = current_bar['high']
+        current_low = current_bar['low']
         
-        # 1. Global Sentiment Check (Enforce directional bias)
-        is_buy_allowed = confirmation in ["STRONG_BUY", "WEAK_BUY"]
-        is_sell_allowed = confirmation in ["STRONG_SELL", "WEAK_SELL"]
-        
-        if not (is_buy_allowed or is_sell_allowed):
-            return 
+        # --- BUY BOUNCE/CONTINUATION ---
+        # 1. Must be in an uptrend ("UPTREND")
+        # 2. Price must have touched VWAP (current bar's low <= VWAP)
+        # 3. Bar must have closed *above* VWAP for confirmation
+        if (trend == "UPTREND" and 
+            current_low <= vwap and 
+            current_price > vwap):
+            # 
+            return "buy"
             
-        # 2. Local Condition: Check for "Bounce" signal (e.g., last 2 bars)
-        df = self.symbol_data.get_ohlc_bars(symbol, mt5.TIMEFRAME_M5, 3)
-        
-        # Simplistic "bounce" check: previous bar touched VWAP, current bar closed away.
-        prev_close = df['close'].iloc[-2]
-        
-        # --- BUY BOUNCE ---
-        # Condition: Strong BUY trend AND price bounced off VWAP support
-        if is_buy_allowed and trend == "UPTREND" and prev_close < vwap and current_price > vwap:
+        # --- SELL BOUNCE/CONTINUATION ---
+        # 1. Must be in a downtrend ("DOWNTREND")
+        # 2. Price must have touched VWAP (current bar's high >= VWAP)
+        # 3. Bar must have closed *below* VWAP for confirmation
+        elif (trend == "DOWNTREND" and 
+              current_high >= vwap and 
+              current_price < vwap):
+            # 
+            return "sell"
+            
+        return None
+
+    def place_order(self, symbol: str, side: str):
+        """
+        Executes the trade using the TradeManager. (Live Trading)
+        """
+        if side == "buy":
             self.trade_manager.place_order(
                 symbol=symbol,
                 side="buy",
                 volume=self.volume,
                 comment="VWAP_BOUNCE_BUY",
+                magic=STRATEGY_MAGIC
             )
-            
-        # --- SELL BOUNCE ---
-        # Condition: Strong SELL trend AND price bounced off VWAP resistance
-        elif is_sell_allowed and trend == "DOWNTREND" and prev_close > vwap and current_price < vwap:
+        elif side == "sell":
             self.trade_manager.place_order(
                 symbol=symbol,
                 side="sell",
                 volume=self.volume,
                 comment="VWAP_BOUNCE_SELL",
+                magic=STRATEGY_MAGIC
             )
